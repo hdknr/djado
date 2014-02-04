@@ -42,4 +42,4 @@ class GenericCommand(BaseCommand):
         self.command = args[0]
         getattr(self,
                 'command_%s' % self.command,
-                GenericCommand.handle_help)(*args[1:], **options)
+                GenericCommand.command_help)(*args[1:], **options)
