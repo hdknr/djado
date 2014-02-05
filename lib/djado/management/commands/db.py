@@ -9,6 +9,16 @@ from optparse import make_option
 import os
 
 
+_sphinx_format = '''
+%(object_name)s
+%(sep)s
+
+.. autoclass:: %(app_label)s.models.%(object_name)s
+    :members:
+
+'''
+
+
 class Command(GenericCommand):
     option_list = GenericCommand.option_list + (
         make_option('--database', action='store', dest='database',
@@ -22,6 +32,9 @@ class Command(GenericCommand):
         make_option('--password', action='store', dest='password',
                     default=None,
                     help="Database user's password. "),
+        make_option('--format', action='store', dest='format',
+                    default=None,
+                    help="Print format"),
     )
 
     def command_reset_autoincrement(self, *args, **options):
@@ -39,13 +52,21 @@ class Command(GenericCommand):
         cursor = connection.cursor()
         map(lambda query: cursor.execute(query), queries)
 
-    def command_list_models(self, app_label=None, *args, **options):
+    def command_list_models(self, app_label=None, format=None,
+                            *args, **options):
         if not app_label:
             print "db list_models you_app_label"
             return
 
         for model in get_models(get_app(app_label)):
-            print model
+            if format == 'sphinx':
+                print _sphinx_format % {
+                    "app_label": app_label,
+                    "object_name": model._meta.object_name,
+                    "sep": '-' * len(model._meta.object_name),
+                }
+            else:
+                print model
 
     def exec_sql(self, user, password, sql, fetchall=False):
         import MySQLdb
