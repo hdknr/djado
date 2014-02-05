@@ -10,10 +10,12 @@ import os
 
 
 _sphinx_format = '''
+.. _%(module)s.%(object_name)s:
+
 %(object_name)s
 %(sep)s
 
-.. autoclass:: %(app_label)s.models.%(object_name)s
+.. autoclass:: %(module)s.%(object_name)s
     :members:
 
 '''
@@ -62,6 +64,7 @@ class Command(GenericCommand):
             if format == 'sphinx':
                 print _sphinx_format % {
                     "app_label": app_label,
+                    "module": model.__module__,
                     "object_name": model._meta.object_name,
                     "sep": '-' * len(model._meta.object_name),
                 }
