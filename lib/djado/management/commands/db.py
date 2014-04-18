@@ -125,7 +125,7 @@ class Command(GenericCommand):
         from django.conf import settings
         p = settings.DATABASES[options.get('database', 'default')]
         self.print_dict(p, "@@@ Your database settings :")
-        if p['ENGINE'] is 'django.db.backends.sqlite3':
+        if p['ENGINE'] == 'django.db.backends.sqlite3':
             print "@@@ Not required to create database, just do syncdb."
             return
 
@@ -139,3 +139,15 @@ class Command(GenericCommand):
             "drop database %(NAME)s" % p,
             fetchall=True,
         )
+
+    def command_dumptable(self, *args, **options):
+        from django.conf import settings
+        p = settings.DATABASES[options.get('database', 'default')]
+
+        if p['ENGINE'] == 'django.db.backends.mysql':
+            MYSQLDUMP = "mysqldump -c --skip-extended-insert"
+            MYSQLPARAM = " -u %(USER)s --password=%(PASSWORD)s %(NAME)s" % p
+            cmd = MYSQLDUMP + MYSQLPARAM
+            print cmd
+            os.system(cmd)
+            return
