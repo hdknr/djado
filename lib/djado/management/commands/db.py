@@ -1,13 +1,11 @@
 # -*- coding: utf-8 -*-
 
-from . import GenericCommand
-
+from django.core.management.base import BaseCommand
+from pycommand.command import Command as PyCommand, SubCommand
 from django.db.models import get_models, get_app
 from django.db import connection
-from django.db import DEFAULT_DB_ALIAS
-from optparse import make_option
+#from django.db import DEFAULT_DB_ALIAS
 import os
-
 
 _sphinx_format = '''
 .. _%(module)s.%(object_name)s:
@@ -21,56 +19,7 @@ _sphinx_format = '''
 '''
 
 
-class Command(GenericCommand):
-    option_list = GenericCommand.option_list + (
-        make_option('--database', action='store', dest='database',
-                    default=DEFAULT_DB_ALIAS,
-                    help='Nominates a database to print the '
-                         'SQL for.  Defaults to the "default" database.'),
-        make_option('--user', action='store', dest='user',
-                    default=None,
-                    help='Database user. '
-                         'Some comands requires root privillege'),
-        make_option('--password', action='store', dest='password',
-                    default=None,
-                    help="Database user's password. "),
-        make_option('--format', action='store', dest='format',
-                    default=None,
-                    help="Print format"),
-    )
-
-    def command_reset_autoincrement(self, *args, **options):
-
-        queries = []
-        for model in get_models():
-            try:
-                max_id = model.objects.latest('id').id + 1
-            except:
-                max_id = 1
-
-            sql = 'ALTER TABLE %s AUTO_INCREMENT = %d'
-            queries.append(sql % (model._meta.db_table, max_id))
-
-        cursor = connection.cursor()
-        map(lambda query: cursor.execute(query), queries)
-
-    def command_list_models(self, app_label=None, format=None,
-                            *args, **options):
-        if not app_label:
-            print "db list_models you_app_label"
-            return
-
-        for model in get_models(get_app(app_label)):
-            if format == 'sphinx':
-                print _sphinx_format % {
-                    "app_label": app_label,
-                    "module": model.__module__,
-                    "object_name": model._meta.object_name,
-                    "sep": '-' * len(model._meta.object_name),
-                }
-            else:
-                print model
-
+class SqlCommand(SubCommand):
     def exec_sql(self, user, password, sql, fetchall=False):
         import MySQLdb
         con = MySQLdb.connect(
@@ -87,16 +36,70 @@ class Command(GenericCommand):
         print heading,
         print json.dumps(dict_data, indent=4)
 
-    def command_createdb(self, *args, **options):
-        d = options.get('database', 'default')
-        from django.conf import settings
-        self.print_dict(settings.DATABASES, "@@@ Your database settings :")
-        if settings.DATABASES[d]['ENGINE'] is 'django.db.backends.sqlite3':
-            print "@@@ Not required to create database, just do syncdb."
-            return
 
-        p = settings.DATABASES[d]
-        p['SOURCE'] = p['HOST'] or 'localhost'
+class Command(BaseCommand, PyCommand):
+    managers = ['manage.py', 'do.py']
+
+    def run_from_argv(self, argv):
+        return self.run(argv)
+
+    class ResetAutoIncrement(SubCommand):
+        name = "reset_autoincrement"
+        description = "Reset MySQL autoincrement value."
+        args = []
+
+        def run(self, params, **options):
+            queries = []
+            for model in get_models():
+                try:
+                    max_id = model.objects.latest('id').id + 1
+                except:
+                    max_id = 1
+
+                sql = 'ALTER TABLE %s AUTO_INCREMENT = %d'
+                queries.append(sql % (model._meta.db_table, max_id))
+
+            cursor = connection.cursor()
+            map(lambda query: cursor.execute(query), queries)
+
+    class ListModel(SubCommand):
+        name = "list_model"
+        description = "List Model"
+        args = [
+            (('app_labels',), dict(nargv='+', help="app_label")),
+            (('--sphinx', '-s'),
+             dict(action='store_true', help="sphinx format")),
+        ]
+
+        def run(self, params, **options):
+
+            for app_label in params.app_labels:
+                for model in get_models(get_app(app_label)):
+                    if params.sphinx:
+                        print _sphinx_format % {
+                            "app_label": app_label,
+                            "module": model.__module__,
+                            "object_name": model._meta.object_name,
+                            "sep": '-' * len(model._meta.object_name),
+                        }
+                    else:
+                        print model
+
+    class CreatDatabase(SqlCommand):
+        name = "createdb"
+        description = "Create Database"
+        args = [
+            (('--user', '-u'),
+             dict(default=os.environ.get("DBROOT_USER"),
+                  help="database user")
+            ),
+            (('--password', '-p'),
+             dict(default=os.environ.get("DBROOT_PASSWD"),
+             help="database password")),
+            (('--database', '-d'),
+             dict(default="default", help="database to created")),
+        ]
+
         MYSQL_CREATEDB = """
         CREATE DATABASE %(NAME)s
         DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
@@ -105,49 +108,80 @@ class Command(GenericCommand):
         identified by '%(PASSWORD)s' WITH GRANT OPTION;
         """
 
-        cursor = self.exec_sql(
-            options['user'] or os.environ.get('DBROOT_USER', ''),
-            options['password'] or os.environ.get('DBROOT_PASSWD', ''),
-            "show databases"
-        )
+        def run(self, params, **options):
+            from django.conf import settings
+            self.print_dict(settings.DATABASES, "@@@ Your database settings :")
 
-        if (p['NAME'],) in cursor.fetchall():
-            print "database %(NAME)s exists" % p
-            return
-        else:
-            query = MYSQL_CREATEDB % p
-            print "executing:\n", query
-            cursor.execute(query)
-            for r in cursor.fetchall():
-                print r
+            if settings.DATABASES[params.database]['ENGINE'] \
+                    is 'django.db.backends.sqlite3':
 
-    def command_dropdb(self, *args, **options):
-        from django.conf import settings
-        p = settings.DATABASES[options.get('database', 'default')]
-        self.print_dict(p, "@@@ Your database settings :")
-        if p['ENGINE'] == 'django.db.backends.sqlite3':
-            print "@@@ Not required to create database, just do syncdb."
-            return
+                print "@@@ Not required to create database, just do syncdb."
+                return
 
-        i = raw_input("Are you ready to delete %(NAME)s ?=[y/n]" % p)
-        if i != 'y':
-            return
+            p = settings.DATABASES[params.database]
+            p['SOURCE'] = p.get('HOST', 'localhost')
 
-        print self.exec_sql(
-            options['user'] or os.environ.get('DBROOT_USER', ''),
-            options['password'] or os.environ.get('DBROOT_PASSWD', ''),
-            "drop database %(NAME)s" % p,
-            fetchall=True,
-        )
+            cursor = self.exec_sql(
+                params.user, params.password,
+                "show databases"
+            )
 
-    def command_dumptable(self, *args, **options):
-        from django.conf import settings
-        p = settings.DATABASES[options.get('database', 'default')]
+            if (p['NAME'],) in cursor.fetchall():
+                print "database %(NAME)s exists" % p
+                return
+            else:
+                query = self.MYSQL_CREATEDB % p
+                print "executing:\n", query
+                cursor.execute(query)
+                for r in cursor.fetchall():
+                    print r
 
-        if p['ENGINE'] == 'django.db.backends.mysql':
-            MYSQLDUMP = "mysqldump -c --skip-extended-insert"
-            MYSQLPARAM = " -u %(USER)s --password=%(PASSWORD)s %(NAME)s" % p
-            cmd = MYSQLDUMP + MYSQLPARAM
-            print cmd
-            os.system(cmd)
-            return
+    class DropDatabase(SqlCommand):
+        name = "dropdb"
+        description = "Drop Database"
+        args = [
+            (('--database', '-d'),
+             dict(default="default", help="database to created")),
+        ]
+
+        def run(self, params, **options):
+            from django.conf import settings
+            p = settings.DATABASES[params.database]
+
+            self.print_dict(p, "@@@ Your database settings :")
+            if p['ENGINE'] == 'django.db.backends.sqlite3':
+                print "@@@ Not required to create database, just do syncdb."
+                return
+
+            i = raw_input("Are you ready to delete %(NAME)s ?=[y/n]" % p)
+            if i != 'y':
+                return
+
+            print self.exec_sql(
+                options['user'] or os.environ.get('DBROOT_USER', ''),
+                options['password'] or os.environ.get('DBROOT_PASSWD', ''),
+                "drop database %(NAME)s" % p,
+                fetchall=True,
+            )
+
+    class DumpDatabase(SqlCommand):
+        name = "dumpdb"
+        description = "Dump Database"
+        args = [
+            (('--database', '-d'),
+             dict(default="default", help="database to created")),
+            (('--dryrun', '-r'),
+             dict(action='store_true', help="dry run(rehearsal)")),
+        ]
+        MYSQLDUMP = "mysqldump -c --skip-extended-insert"
+        MYSQLPARAM_F = " -u %(USER)s --password=%(PASSWORD)s %(NAME)s"
+
+        def run(self, params, **options):
+            from django.conf import settings
+            p = settings.DATABASES[params.database]
+
+            if p['ENGINE'] == 'django.db.backends.mysql':
+                cmd = self.MYSQLDUMP + self.MYSQLPARAM_F % p
+                print cmd
+                params.dryrun or os.system(cmd)
+                return
