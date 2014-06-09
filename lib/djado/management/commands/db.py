@@ -185,3 +185,25 @@ class Command(BaseCommand, PyCommand):
                 print cmd
                 params.dryrun or os.system(cmd)
                 return
+
+    class DumpSchemea(SqlCommand):
+        name = "dumpschema"
+        description = "Dump Database Schema"
+        args = [
+            (('--database', '-d'),
+             dict(default="default", help="database to created")),
+            (('--dryrun', '-r'),
+             dict(action='store_true', help="dry run(rehearsal)")),
+        ]
+        MYSQLDUMP = "mysqldump --no-data"
+        MYSQLPARAM_F = " -u %(USER)s --password=%(PASSWORD)s %(NAME)s"
+
+        def run(self, params, **options):
+            from django.conf import settings
+            p = settings.DATABASES[params.database]
+
+            if p['ENGINE'] == 'django.db.backends.mysql':
+                cmd = self.MYSQLDUMP + self.MYSQLPARAM_F % p
+                print cmd
+                params.dryrun or os.system(cmd)
+                return
