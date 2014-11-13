@@ -3,22 +3,32 @@
 import sys
 import re
 import os
+import argparse
+from pycommand import command
 
-pat = r'(?P<indent>\s+)(?P<code>execute_from_command_line.+)$'
-patch = '''from django.conf import settings
-settings.INSTALLED_APPS = settings.INSTALLED_APPS + ('djado',)'''
 
-if len(sys.argv) > 1 and os.path.basename(sys.argv[1]) == 'manage.py':
-    print "Createing a do.py...."
-    dst = os.path.join(os.path.dirname(os.path.abspath(sys.argv[1])),
-                       'do.py')
-    with open(dst, "w") as out, open(sys.argv[1]) as src:
-        for i in src.readlines():
-            m = re.search(pat, i)
-            m = m and m.groupdict()
-            if m:
-                for p in patch.split('\n'):
-                    out.write(m['indent'])
-                    out.write(p)
-                    out.write("\n")
-            out.write(i)
+PAVES = '''# -*- coding: utf-8 -*-
+from paver.easy import (
+    task, cmdopts, sh, consume_args
+)
+from djado.paves import runserver, do
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+'''
+
+
+class DoCommand(command.Command):
+    class InitCommand(command.SubCommand): 
+        name = "init"
+        description = "create pavement.py"
+        args = []
+    
+        def run(self, params, **options):
+            print "providing pavement.py"
+            with open('pavement.py', 'w') as pave:
+                pave.write(PAVES)
+
+if __name__ == '__main__':
+    DoCommand().run() 
