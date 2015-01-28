@@ -18,7 +18,9 @@ def manage_py(args, do=False, settings_class="app.settings"):
     from django.core.management import execute_from_command_line
     if do:
         from django.conf import settings
-        settings.INSTALLED_APPS = settings.INSTALLED_APPS + ('djado',)
+        settings.INSTALLED_APPS = settings.INSTALLED_APPS + (
+            'djado',
+            'django_extensions', )
     execute_from_command_line(args)
 
 
