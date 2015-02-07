@@ -1,25 +1,27 @@
 # -*- coding: utf-8 -*-
 
-from django.core.management.base import BaseCommand
-from pycommand.command import Command as PyCommand, SubCommand
+from pycommand import djcommand
 from django.db.models import get_models, get_app
 from django.db import connection
-#from django.db import DEFAULT_DB_ALIAS
+# from django.db import DEFAULT_DB_ALIAS
 import os
 
-_sphinx_format = '''
-.. _%(module)s.%(object_name)s:
+_format = dict(
+    line='{module}.{object_name} {db_table}',
+    sphinx='''
+.. _{module}.{object_name}:
 
-%(object_name)s
-%(sep)s
+{object_name}
+{sep}
 
-.. autoclass:: %(module)s.%(object_name)s
+.. autoclass:: {module}.{object_name}
     :members:
 
-'''
+''',
+)
 
 
-class SqlCommand(SubCommand):
+class SqlCommand(djcommand.SubCommand):
     def exec_sql(self, user, password, sql, fetchall=False):
         import MySQLdb
         con = MySQLdb.connect(
@@ -30,6 +32,22 @@ class SqlCommand(SubCommand):
         cursor.execute(sql)
         return cursor.fetchall() if fetchall else cursor
 
+    def mysqldump(self, USER=None, PASSWORD=None, NAME=None,
+                  options=None, *args, **kwargs):
+        options = options or []
+        return "mysqldump {0} -u {1} --password={2} {3}".format(
+            " ".join(options),
+            USER, PASSWORD, NAME)
+
+    def mysqldump_data(self, USER=None, PASSWORD=None, NAME=None,
+                       options=None, **kwargs):
+        options = options or (
+            "--skip-extended-insert",  # line by line
+            "-c",                      # full column name
+            "-t",                      # no DDL
+        )
+        return self.mysqldump(USER, PASSWORD, NAME, options, **kwargs)
+
     def print_dict(self, dict_data, heading=''):
         import json
 
@@ -37,13 +55,9 @@ class SqlCommand(SubCommand):
         print json.dumps(dict_data, indent=4)
 
 
-class Command(BaseCommand, PyCommand):
-    managers = ['manage.py', 'do.py']
+class Command(djcommand.Command):
 
-    def run_from_argv(self, argv):
-        return self.run(argv)
-
-    class ResetAutoIncrement(SubCommand):
+    class ResetAutoIncrement(djcommand.SubCommand):
         name = "reset_autoincrement"
         description = "Reset MySQL autoincrement value."
         args = []
@@ -62,28 +76,27 @@ class Command(BaseCommand, PyCommand):
             cursor = connection.cursor()
             map(lambda query: cursor.execute(query), queries)
 
-    class ListModel(SubCommand):
+    class ListModel(djcommand.SubCommand):
         name = "list_model"
         description = "List Model"
         args = [
-            (('app_labels',), dict(nargv='+', help="app_label")),
-            (('--sphinx', '-s'),
-             dict(action='store_true', help="sphinx format")),
+            (('app_labels',), dict(nargs='+', help="app_label")),
+            (('--format', '-f',),
+             dict(default='line', help="format=[line|sphinx]")),
         ]
 
         def run(self, params, **options):
 
             for app_label in params.app_labels:
                 for model in get_models(get_app(app_label)):
-                    if params.sphinx:
-                        print _sphinx_format % {
-                            "app_label": app_label,
-                            "module": model.__module__,
-                            "object_name": model._meta.object_name,
-                            "sep": '-' * len(model._meta.object_name),
-                        }
-                    else:
-                        print model
+                    data = {
+                        "app_label": app_label,
+                        "module": model.__module__,
+                        "object_name": model._meta.object_name,
+                        "sep": '-' * len(model._meta.object_name),
+                        "db_table": model._meta.db_table,
+                    }
+                    print _format[params.format].format(**data)
 
     class CreatDatabase(SqlCommand):
         name = "createdb"
@@ -92,7 +105,7 @@ class Command(BaseCommand, PyCommand):
             (('--user', '-u'),
              dict(default=os.environ.get("DBROOT_USER"),
                   help="database user")
-            ),
+             ),
             (('--password', '-p'),
              dict(default=os.environ.get("DBROOT_PASSWD"),
              help="database password")),
@@ -204,6 +217,26 @@ class Command(BaseCommand, PyCommand):
 
             if p['ENGINE'] == 'django.db.backends.mysql':
                 cmd = self.MYSQLDUMP + self.MYSQLPARAM_F % p
+                print cmd
+                params.dryrun or os.system(cmd)
+                return
+
+    class DumpData(SqlCommand):
+        name = "dumpsdata"
+        description = "Dump Database Data"
+        args = [
+            (('tables',), dict(nargs='*', help="Database Tables")),
+            (('--database', '-d'),
+             dict(default="default", help="database to created")),
+            (('--dryrun', '-r'),
+             dict(action='store_true', help="dry run(rehearsal)")),
+        ]
+
+        def run(self, params, **options):
+            from django.conf import settings
+            p = settings.DATABASES[params.database]
+            if p['ENGINE'] == 'django.db.backends.mysql':
+                cmd = self.mysqldump_data(**p) + " " + " ".join(params.tables)
                 print cmd
                 params.dryrun or os.system(cmd)
                 return
