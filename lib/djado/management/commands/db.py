@@ -283,6 +283,9 @@ class Command(djcommand.Command):
             print text.encode('utf8')
             print len(text) * 2 * c[level]
             print
+            print ".. contents::"
+            print "    :local:"
+            print
 
         def ref(self, name):
             print ".. _{0}:\n".format(name)
