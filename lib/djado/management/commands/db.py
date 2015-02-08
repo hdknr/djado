@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 
 from pycommand import djcommand
-from django.db.models import get_models, get_app
+from django.db.models import get_models, get_app, get_apps
 from django.db import connection
-# from django.db import DEFAULT_DB_ALIAS
+from django.core.serializers.json import DjangoJSONEncoder
+from django.utils.encoding import force_unicode
+# from django.utils import functional
+import json
 import os
+import re
 
 _format = dict(
     line='{module}.{object_name} {db_table}',
@@ -22,6 +26,30 @@ _format = dict(
 
 
 class SqlCommand(djcommand.SubCommand):
+
+    class JsonEncoder(DjangoJSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, set):
+                obj = list(obj)
+            elif callable(obj):
+                return str(obj)
+            elif type(obj).__name__ == '__proxy__':
+                return force_unicode(obj)
+
+            return super(SqlCommand.JsonEncoder, self).default(obj)
+
+    def to_json(self, obj):
+        return json.dumps(
+            self.fields, indent=2, ensure_ascii=False,
+            cls=self.JsonEncoder)
+
+    def models(self):
+        return get_models()
+
+    def model_fullname(self, model):
+        return "{0}.{1}".format(
+            model.__module__, model.__name__)
+
     def exec_sql(self, user, password, sql, fetchall=False):
         import MySQLdb
         con = MySQLdb.connect(
@@ -52,7 +80,7 @@ class SqlCommand(djcommand.SubCommand):
         import json
 
         print heading,
-        print json.dumps(dict_data, indent=4)
+        print json.dumps(dict_data, ensure_ascii=False, indent=4)
 
 
 class Command(djcommand.Command):
@@ -240,3 +268,82 @@ class Command(djcommand.Command):
                 print cmd
                 params.dryrun or os.system(cmd)
                 return
+
+    class ModelDoc(SqlCommand):
+        name = "model_doc"
+        description = "Create Model Documentation for Sphinx"
+        args = [
+            (('apps',), dict(nargs='+', help="Applications")),
+        ]
+
+        def header(self, text, level=0):
+            c = ['=', '=', '-', '^', '~', '#', ]
+            if level == 0:
+                print len(text) * 2 * c[level]
+            print text.encode('utf8')
+            print len(text) * 2 * c[level]
+            print
+
+        def ref(self, name):
+            print ".. _{0}:\n".format(name)
+
+        def autoclass(self, name):
+            print ".. autoclass:: {0}".format(name)
+            print "    :members:".encode('utf8')
+            print
+
+        def run_for_app(self, app):
+            title = (app.__doc__ or "Model").split('\n')[0]
+            self.header(title, 0)
+
+            for m in get_models(app):
+                fullname = self.model_fullname(m)
+                self.ref(fullname)
+                title = u"{0}:{1}".format(
+                    m.__name__,
+                    (m.__doc__ or '').split(u'\n')[0],
+                )
+                self.header(title, 1)
+                self.autoclass(fullname)
+
+        def run(self, params, **options):
+            params.apps = [a + ".models" for a in params.apps]
+            apps = get_apps()
+            for app in apps:
+                if params.apps and app.__name__ not in params.apps:
+                    continue
+                self.run_for_app(app)
+
+    class ListField(SqlCommand):
+        name = "list_field"
+        description = "Search Model Field"
+        args = [
+            (('apps',), dict(nargs='*', help="Applications")),
+            (('--pattern', '-p'), dict(default='', help="Fieldname Pattern")),
+        ]
+
+        def run_for_app(self, app, pattern=None):
+            for m in get_models(app):
+                for f in m._meta.fields:
+                    if pattern and not pattern.search(f.name):
+                        continue
+                    models = self.fields.get(f.name, list())
+                    val = (self.model_fullname(m),) + f.deconstruct()[3:]
+#                    models.append(
+#                        (name,
+#                         # unicode(f.verbose_name).encode('utf8'),
+#                         f.deconstruct()[3:]))
+                    models.append(val)
+                    self.fields[f.name] = models
+
+        def run(self, params, **options):
+            pattern = params.pattern and re.compile(params.pattern)
+            self.fields = {}
+            params.apps = [a + ".models" for a in params.apps]
+            apps = get_apps()
+            for app in apps:
+                if params.apps and app.__name__ not in params.apps:
+                    continue
+                self.run_for_app(app, pattern)
+
+            print self.to_json(self.fields).encode('utf8')
