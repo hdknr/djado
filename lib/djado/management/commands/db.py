@@ -274,6 +274,8 @@ class Command(djcommand.Command):
         description = "Create Model Documentation for Sphinx"
         args = [
             (('apps',), dict(nargs='+', help="Applications")),
+            (('--subdocs', '-s', ),
+             dict(action='store_true', help="Include each models document")),
         ]
 
         def header(self, text, level=0):
@@ -295,19 +297,23 @@ class Command(djcommand.Command):
             print "    :members:".encode('utf8')
             print
 
-        def run_for_app(self, app):
+        def run_for_app(self, app, subdocs=False):
             title = (app.__doc__ or "Model").split('\n')[0]
             self.header(title, 0)
 
             for m in get_models(app):
                 fullname = self.model_fullname(m)
                 self.ref(fullname)
+                desc = m._meta.verbose_name     #
+# or (m.__doc__ or '').split(u'\n')[0],
                 title = u"{0}:{1}".format(
-                    m.__name__,
-                    (m.__doc__ or '').split(u'\n')[0],
+                    m.__name__, desc,
                 )
                 self.header(title, 1)
                 self.autoclass(fullname)
+                if subdocs:
+                    print ".. include:: {0}.rst".format(fullname)
+                    print
 
         def run(self, params, **options):
             params.apps = [a + ".models" for a in params.apps]
@@ -315,7 +321,7 @@ class Command(djcommand.Command):
             for app in apps:
                 if params.apps and app.__name__ not in params.apps:
                     continue
-                self.run_for_app(app)
+                self.run_for_app(app, params.subdocs)
 
     class ListField(SqlCommand):
         name = "list_field"
