@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from pycommand import djcommand
-from django.db.models import get_models, get_app, get_apps
+from django.db.models import Model, get_models, get_app, get_apps
 from django.db import connection
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils.encoding import force_unicode
@@ -9,6 +9,7 @@ from django.utils.encoding import force_unicode
 import json
 import os
 import re
+import inspect
 
 _format = dict(
     line='{module}.{object_name} {db_table}',
@@ -297,11 +298,22 @@ class Command(djcommand.Command):
             print "    :members:".encode('utf8')
             print
 
+        def models_for_app(self, app):
+
+            def is_modelclass(c):
+                if inspect.isclass(c) and issubclass(c, Model):
+                    return app.__name__ == c.__module__
+                return False
+
+            res = [m[1] for m in inspect.getmembers(app, is_modelclass,)]
+            return res
+
         def run_for_app(self, app, subdocs=False):
             title = (app.__doc__ or "Model").split('\n')[0]
             self.header(title, 0)
 
-            for m in get_models(app):
+            # for m in get_models(app):
+            for m in self.models_for_app(app):
                 fullname = self.model_fullname(m)
                 self.ref(fullname)
                 desc = m._meta.verbose_name     #
