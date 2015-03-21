@@ -283,12 +283,15 @@ class Command(djcommand.Command):
             c = ['=', '=', '-', '^', '~', '#', ]
             if level == 0:
                 print len(text) * 2 * c[level]
-            print text.encode('utf8')
+            # print "@@@@", type(text)
+            print type(text) == str and text or text.encode('utf8')
             print len(text) * 2 * c[level]
             print
-            print ".. contents::"
-            print "    :local:"
-            print
+
+            if level == 0:
+                print ".. contents::"
+                print "    :local:"
+                print
 
         def ref(self, name):
             print ".. _{0}:\n".format(name)
