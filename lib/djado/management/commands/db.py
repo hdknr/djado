@@ -2,7 +2,7 @@
 
 from pycommand import djcommand
 from django.db.models import Model, get_models, get_app, get_apps
-from django.db import connection
+from django.db import connection, connections
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils.encoding import force_unicode
 # from django.utils import functional
@@ -311,6 +311,17 @@ class Command(djcommand.Command):
             res = [m[1] for m in inspect.getmembers(app, is_modelclass,)]
             return res
 
+        def field_table(self, model):
+            con = connections['default']      # TODO
+            print ""
+            print ".. list-table::\n"
+            for field in model._meta.fields:
+                print "    *    -", field.name
+                print "         -", field.verbose_name.encode('utf8')
+                print "         -", field.db_type(con)
+                print "         -", field.help_text.encode('utf8')
+                print ""
+
         def run_for_app(self, app, subdocs=False):
             title = (app.__doc__ or "Model").split('\n')[0]
             self.header(title, 0)
@@ -320,12 +331,13 @@ class Command(djcommand.Command):
                 fullname = self.model_fullname(m)
                 self.ref(fullname)
                 desc = m._meta.verbose_name     #
-# or (m.__doc__ or '').split(u'\n')[0],
                 title = u"{0}:{1}".format(
                     m.__name__, desc,
                 )
                 self.header(title, 1)
                 self.autoclass(fullname)
+
+                self.field_table(m)
                 if subdocs:
                     print ".. include:: {0}.rst".format(fullname)
                     print
@@ -353,10 +365,6 @@ class Command(djcommand.Command):
                         continue
                     models = self.fields.get(f.name, list())
                     val = (self.model_fullname(m),) + f.deconstruct()[3:]
-#                    models.append(
-#                        (name,
-#                         # unicode(f.verbose_name).encode('utf8'),
-#                         f.deconstruct()[3:]))
                     models.append(val)
                     self.fields[f.name] = models
 
