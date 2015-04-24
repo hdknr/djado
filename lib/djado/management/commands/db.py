@@ -311,6 +311,19 @@ class Command(djcommand.Command):
             res = [m[1] for m in inspect.getmembers(app, is_modelclass,)]
             return res
 
+        def field_choices(self, field):
+            choices = getattr(field, 'choices', ())
+            if not choices:
+                return
+
+            indent = "          "
+            print
+            print indent, ".. list-table::\n"
+            for val, title in choices:
+                print indent, "    *    -", val
+                print indent, "         -", title.encode('utf8')
+                print indent, ""
+
         def field_table(self, model):
             con = connections['default']      # TODO
             print ""
@@ -320,6 +333,7 @@ class Command(djcommand.Command):
                 print "         -", field.verbose_name.encode('utf8')
                 print "         -", field.db_type(con)
                 print "         -", field.help_text.encode('utf8')
+                self.field_choices(field)
                 print ""
 
         def run_for_app(self, app, subdocs=False):
