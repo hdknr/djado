@@ -270,6 +270,46 @@ class Command(djcommand.Command):
                 params.dryrun or os.system(cmd)
                 return
 
+    class DbGrantAll(SqlCommand):
+        name = "db_grant_all"
+        description = "Add DB Admin Privilege"
+        args = [
+            (('--user', '-u'),
+             dict(default=os.environ.get("DBROOT_USER"),
+             help="database user")
+             ),
+            (('--password', '-p'),
+             dict(default=os.environ.get("DBROOT_PASSWD"),
+             help="database password")),
+            (('--database', '-d'),
+             dict(default="default", help="database to created")),
+        ]
+
+        MYSQL_GRANT_ALL = """
+        GRANT ALL on *.* to '%(USER)s'@'%(SOURCE)s' WITH GRANT OPTION;
+        """
+
+        def run(self, params, **options):
+            from django.conf import settings
+            self.print_dict(settings.DATABASES, "@@@ Your database settings :")
+
+            if settings.DATABASES[params.database]['ENGINE'] \
+                    is 'django.db.backends.sqlite3':
+
+                print "@@@ Not required to create database, just do syncdb."
+                return
+
+            p = settings.DATABASES[params.database]
+            p['SOURCE'] = p.get('HOST', 'localhost')
+
+            cursor = self.exec_sql(
+                params.user, params.password,
+                self.MYSQL_GRANT_ALL % p
+            )
+
+            for r in cursor.fetchall():
+                print r
+
     class ModelDoc(SqlCommand):
         name = "model_doc"
         description = "Create Model Documentation for Sphinx"
