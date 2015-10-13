@@ -376,12 +376,15 @@ class Command(djcommand.Command):
                 self.field_choices(field)
                 print ""
 
-        def run_for_app(self, app, subdocs=False):
-            title = (app.__doc__ or "Model").split('\n')[0]
+        def run_for_app(self, app_label, subdocs=False):
+            from django.apps import apps
+            conf = apps.get_app_config(app_label)
+
+            title = (conf.__doc__ or conf.name + " Model").split('\n')[0]
             self.header(title, 0)
 
             # for m in get_models(app):
-            for m in self.models_for_app(app):
+            for m in conf.get_models():
                 fullname = self.model_fullname(m)
                 self.ref(fullname)
                 desc = m._meta.verbose_name     #
@@ -397,12 +400,10 @@ class Command(djcommand.Command):
                     print
 
         def run(self, params, **options):
-            params.apps = [a + ".models" for a in params.apps]
-            apps = get_apps()
-            for app in apps:
-                if params.apps and app.__name__ not in params.apps:
-                    continue
-                self.run_for_app(app, params.subdocs)
+            # params.apps = [a + ".models" for a in params.apps]
+            # apps = get_apps()
+            for app_label in params.apps:
+                self.run_for_app(app_label, params.subdocs)
 
     class ListField(SqlCommand):
         name = "list_field"
