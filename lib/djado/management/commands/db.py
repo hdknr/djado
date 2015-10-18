@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from pycommand import djcommand
-from django.db.models import Model, get_models, get_app, get_apps
+from django.db.models import Model, get_models, get_apps
 from django.db import connection, connections
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils.encoding import force_unicode
@@ -115,9 +115,11 @@ class Command(djcommand.Command):
         ]
 
         def run(self, params, **options):
+            from django.apps import apps
 
             for app_label in params.app_labels:
-                for model in get_models(get_app(app_label)):
+                conf = apps.get_app_config(app_label)
+                for model in conf.get_models():
                     data = {
                         "app_label": app_label,
                         "module": model.__module__,
