@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
+from __future__ import print_function
 
 from pycommand import djcommand
 from django.db.models import Model, get_models, get_apps
 from django.db import connection, connections
 from django.core.serializers.json import DjangoJSONEncoder
-from django.utils.encoding import force_unicode
+from django.utils.encoding import force_text
 # from django.utils import functional
 import json
 import os
@@ -35,7 +36,7 @@ class SqlCommand(djcommand.SubCommand):
             elif callable(obj):
                 return str(obj)
             elif type(obj).__name__ == '__proxy__':
-                return force_unicode(obj)
+                return force_text(obj)
 
             return super(SqlCommand.JsonEncoder, self).default(obj)
 
@@ -80,8 +81,8 @@ class SqlCommand(djcommand.SubCommand):
     def print_dict(self, dict_data, heading=''):
         import json
 
-        print heading,
-        print json.dumps(dict_data, ensure_ascii=False, indent=4)
+        print(heading)
+        print(json.dumps(dict_data, ensure_ascii=False, indent=4))
 
 
 class Command(djcommand.Command):
@@ -127,7 +128,7 @@ class Command(djcommand.Command):
                         "sep": '-' * len(model._meta.object_name),
                         "db_table": model._meta.db_table,
                     }
-                    print _format[params.format].format(**data)
+                    print(_format[params.format].format(**data))
 
     class CreatDatabase(SqlCommand):
         name = "createdb"
@@ -159,7 +160,7 @@ class Command(djcommand.Command):
             if settings.DATABASES[params.database]['ENGINE'] \
                     is 'django.db.backends.sqlite3':
 
-                print "@@@ Not required to create database, just do syncdb."
+                print("@@@ Not required to create database, just do syncdb.")
                 return
 
             p = settings.DATABASES[params.database]
@@ -171,14 +172,14 @@ class Command(djcommand.Command):
             )
 
             if (p['NAME'],) in cursor.fetchall():
-                print "database %(NAME)s exists" % p
+                print("database %(NAME)s exists" % p)
                 return
             else:
                 query = self.MYSQL_CREATEDB % p
-                print "executing:\n", query
+                print("executing:\n", query)
                 cursor.execute(query)
                 for r in cursor.fetchall():
-                    print r
+                    print(r)
 
     class DropDatabase(SqlCommand):
         name = "dropdb"
@@ -194,19 +195,19 @@ class Command(djcommand.Command):
 
             self.print_dict(p, "@@@ Your database settings :")
             if p['ENGINE'] == 'django.db.backends.sqlite3':
-                print "@@@ Not required to create database, just do syncdb."
+                print("@@@ Not required to create database, just do syncdb.")
                 return
 
             i = raw_input("Are you ready to delete %(NAME)s ?=[y/n]" % p)
             if i != 'y':
                 return
 
-            print self.exec_sql(
+            print(self.exec_sql(
                 options['user'] or os.environ.get('DBROOT_USER', ''),
                 options['password'] or os.environ.get('DBROOT_PASSWD', ''),
                 "drop database %(NAME)s" % p,
                 fetchall=True,
-            )
+            ))
 
     class DumpDatabase(SqlCommand):
         name = "dumpdb"
@@ -226,7 +227,7 @@ class Command(djcommand.Command):
 
             if p['ENGINE'] == 'django.db.backends.mysql':
                 cmd = self.MYSQLDUMP + self.MYSQLPARAM_F % p
-                print cmd
+                print(cmd)
                 params.dryrun or os.system(cmd)
                 return
 
@@ -248,7 +249,7 @@ class Command(djcommand.Command):
 
             if p['ENGINE'] == 'django.db.backends.mysql':
                 cmd = self.MYSQLDUMP + self.MYSQLPARAM_F % p
-                print cmd
+                print(cmd)
                 params.dryrun or os.system(cmd)
                 return
 
@@ -268,7 +269,7 @@ class Command(djcommand.Command):
             p = settings.DATABASES[params.database]
             if p['ENGINE'] == 'django.db.backends.mysql':
                 cmd = self.mysqldump_data(**p) + " " + " ".join(params.tables)
-                print cmd
+                print(cmd)
                 params.dryrun or os.system(cmd)
                 return
 
@@ -298,7 +299,7 @@ class Command(djcommand.Command):
             if settings.DATABASES[params.database]['ENGINE'] \
                     is 'django.db.backends.sqlite3':
 
-                print "@@@ Not required to create database, just do syncdb."
+                print("@@@ Not required to create database, just do syncdb.")
                 return
 
             p = settings.DATABASES[params.database]
@@ -310,7 +311,7 @@ class Command(djcommand.Command):
             )
 
             for r in cursor.fetchall():
-                print r
+                print(r)
 
     class ModelDoc(SqlCommand):
         name = "model_doc"
@@ -324,24 +325,24 @@ class Command(djcommand.Command):
         def header(self, text, level=0):
             c = ['=', '=', '-', '^', '~', '#', ]
             if level == 0:
-                print len(text) * 2 * c[level]
+                print(len(text) * 2 * c[level])
             # print "@@@@", type(text)
-            print type(text) == str and text or text.encode('utf8')
-            print len(text) * 2 * c[level]
-            print
+            print(type(text) == str and text or text.encode('utf8'))
+            print(len(text) * 2 * c[level])
+            print()
 
             if level == 0:
-                print ".. contents::"
-                print "    :local:"
-                print
+                print(".. contents::")
+                print("    :local:")
+                print()
 
         def ref(self, name):
-            print ".. _{0}:\n".format(name)
+            print(".. _{0}:\n".format(name))
 
         def autoclass(self, name):
-            print ".. autoclass:: {0}".format(name)
-            print "    :members:".encode('utf8')
-            print
+            print(".. autoclass:: {0}".format(name))
+            print("    :members:".encode('utf8'))
+            print()
 
         def models_for_app(self, app):
 
@@ -359,24 +360,24 @@ class Command(djcommand.Command):
                 return
 
             indent = "          "
-            print
-            print indent, ".. list-table::\n"
+            print()
+            print(indent, ".. list-table::\n")
             for val, title in choices:
-                print indent, "    *    -", val
-                print indent, "         -", title.encode('utf8')
-                print indent, ""
+                print(indent, "    *    -", val)
+                print(indent, "         -", title.encode('utf8'))
+                print(indent, "")
 
         def field_table(self, model):
             con = connections['default']      # TODO
-            print ""
-            print ".. list-table::\n"
+            print("")
+            print(".. list-table::\n")
             for field in model._meta.fields:
-                print "    *    -", field.name
-                print "         -", field.verbose_name.encode('utf8')
-                print "         -", field.db_type(con)
-                print "         -", field.help_text.encode('utf8')
+                print("    *    -", field.name)
+                print("         -", field.verbose_name.encode('utf8'))
+                print("         -", field.db_type(con))
+                print("         -", field.help_text.encode('utf8'))
                 self.field_choices(field)
-                print ""
+                print("")
 
         def run_for_app(self, app_label, subdocs=False):
             from django.apps import apps
@@ -398,8 +399,8 @@ class Command(djcommand.Command):
 
                 self.field_table(m)
                 if subdocs:
-                    print ".. include:: {0}.rst".format(fullname)
-                    print
+                    print(".. include:: {0}.rst".format(fullname))
+                    print()
 
         def run(self, params, **options):
             # params.apps = [a + ".models" for a in params.apps]
@@ -435,4 +436,4 @@ class Command(djcommand.Command):
                     continue
                 self.run_for_app(app, pattern)
 
-            print self.to_json(self.fields).encode('utf8')
+            print(self.to_json(self.fields).encode('utf8'))
