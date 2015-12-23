@@ -2,7 +2,8 @@
 from __future__ import print_function
 
 from pycommand import djcommand
-from django.db.models import Model, get_models, get_apps
+from django.db.models import Model
+from django.apps import apps
 from django.db import connection, connections
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils.encoding import force_text
@@ -46,7 +47,7 @@ class SqlCommand(djcommand.SubCommand):
             cls=self.JsonEncoder)
 
     def models(self):
-        return get_models()
+        return apps.get_models()
 
     def model_fullname(self, model):
         return "{0}.{1}".format(
@@ -94,7 +95,7 @@ class Command(djcommand.Command):
 
         def run(self, params, **options):
             queries = []
-            for model in get_models():
+            for model in apps.get_models():
                 try:
                     max_id = model.objects.latest('id').id + 1
                 except:
@@ -417,7 +418,7 @@ class Command(djcommand.Command):
         ]
 
         def run_for_app(self, app, pattern=None):
-            for m in get_models(app):
+            for name, m in apps.get_app_config(app).models:
                 for f in m._meta.fields:
                     if pattern and not pattern.search(f.name):
                         continue
@@ -429,11 +430,7 @@ class Command(djcommand.Command):
         def run(self, params, **options):
             pattern = params.pattern and re.compile(params.pattern)
             self.fields = {}
-            params.apps = [a + ".models" for a in params.apps]
-            apps = get_apps()
-            for app in apps:
-                if params.apps and app.__name__ not in params.apps:
-                    continue
+            for app in params.apps:
                 self.run_for_app(app, pattern)
 
             print(self.to_json(self.fields).encode('utf8'))
