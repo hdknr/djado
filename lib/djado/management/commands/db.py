@@ -4,7 +4,7 @@ from __future__ import print_function
 from pycommand import djcommand
 from django.db.models import Model
 from django.apps import apps
-from django.db import connection, connections
+from django.db import connection, connections, DEFAULT_DB_ALIAS
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils.encoding import force_text
 # from django.utils import functional
@@ -40,6 +40,18 @@ class SqlCommand(djcommand.SubCommand):
                 return force_text(obj)
 
             return super(SqlCommand.JsonEncoder, self).default(obj)
+
+    def connection(self, name=DEFAULT_DB_ALIAS):
+        return connections[name]
+
+    def dump_command(self, name=DEFAULT_DB_ALIAS):
+        conn = self.connection(name or DEFAULT_DB_ALIAS)
+        cmd = conn.client.executable_name
+        d = {
+            'psql': 'pg_dump -h {HOST} -U {USER} {NAME}',
+            'mysql': "mysqldump -h {HOST} -u {USER} --password={PASSWORD} {NAME}",      # NOQA
+        }
+        return d[cmd].format(**conn.settings_dict)
 
     def to_json(self, obj):
         return json.dumps(
@@ -434,3 +446,14 @@ class Command(djcommand.Command):
                 self.run_for_app(app, pattern)
 
             print(self.to_json(self.fields).encode('utf8'))
+
+    class Backend(SqlCommand):
+        name = 'backend'
+        description = "Backend Info"
+        args = [
+            (('p',), dict(nargs='*', help="Applications")),
+        ]
+
+        def run(self, params, **options):
+            if len(params.p) == 0 or params.p[0] == 'dump_command':
+                print(self.dump_command(name=options.get('database')))
