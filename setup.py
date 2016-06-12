@@ -74,5 +74,4 @@ def install_links():
 
 
 if __name__ == '__main__':
-    install_links()
     install()
