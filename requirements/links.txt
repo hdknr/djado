@@ -1,1 +1,1 @@
--e git+https://github.com/hdknr/pycommand.git#egg=pycommand
+

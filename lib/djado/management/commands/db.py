@@ -1,17 +1,13 @@
 # -*- coding: utf-8 -*-
 from __future__ import print_function
 
-from pycommand import djcommand
-from django.db.models import Model
 from django.apps import apps
-from django.db import connection, connections, DEFAULT_DB_ALIAS
-from django.core.serializers.json import DjangoJSONEncoder
-from django.utils.encoding import force_text
+from django.db import connection
 # from django.utils import functional
-import json
+import djclick as click
 import os
 import re
-import inspect
+from .sql import SqlCommand
 
 _format = dict(
     line='{module}.{object_name} {db_table}',
@@ -28,432 +24,241 @@ _format = dict(
 )
 
 
-class SqlCommand(djcommand.SubCommand):
-
-    class JsonEncoder(DjangoJSONEncoder):
-        def default(self, obj):
-            if isinstance(obj, set):
-                obj = list(obj)
-            elif callable(obj):
-                return str(obj)
-            elif type(obj).__name__ == '__proxy__':
-                return force_text(obj)
-
-            return super(SqlCommand.JsonEncoder, self).default(obj)
-
-    def connection(self, name=DEFAULT_DB_ALIAS):
-        return connections[name]
-
-    def dump_command(self, name=DEFAULT_DB_ALIAS):
-        conn = self.connection(name or DEFAULT_DB_ALIAS)
-        cmd = conn.client.executable_name
-        d = {
-            'psql': 'pg_dump -h {HOST} -U {USER} {NAME}',
-            'mysql': "mysqldump -h {HOST} -u {USER} --password={PASSWORD} {NAME}",      # NOQA
-        }
-        return d[cmd].format(**conn.settings_dict)
-
-    def to_json(self, obj):
-        return json.dumps(
-            self.fields, indent=2, ensure_ascii=False,
-            cls=self.JsonEncoder)
-
-    def models(self):
-        return apps.get_models()
-
-    def model_fullname(self, model):
-        return "{0}.{1}".format(
-            model.__module__, model.__name__)
-
-    def exec_sql(self, user, password, sql, fetchall=False):
-        import MySQLdb
-        con = MySQLdb.connect(
-            user=user,
-            passwd=password
-        )
-        cursor = con.cursor()
-        cursor.execute(sql)
-        return cursor.fetchall() if fetchall else cursor
-
-    def mysqldump(self, USER=None, PASSWORD=None, NAME=None,
-                  options=None, *args, **kwargs):
-        options = options or []
-        return "mysqldump {0} -u {1} --password={2} {3}".format(
-            " ".join(options),
-            USER, PASSWORD, NAME)
-
-    def mysqldump_data(self, USER=None, PASSWORD=None, NAME=None,
-                       options=None, **kwargs):
-        options = options or (
-            "--skip-extended-insert",  # line by line
-            "-c",                      # full column name
-            "-t",                      # no DDL
-        )
-        return self.mysqldump(USER, PASSWORD, NAME, options, **kwargs)
-
-    def print_dict(self, dict_data, heading=''):
-        import json
-
-        print(heading)
-        print(json.dumps(dict_data, ensure_ascii=False, indent=4))
-
-
-class Command(djcommand.Command):
-
-    class ResetAutoIncrement(djcommand.SubCommand):
-        name = "reset_autoincrement"
-        description = "Reset MySQL autoincrement value."
-        args = []
-
-        def run(self, params, **options):
-            queries = []
-            for model in apps.get_models():
-                try:
-                    max_id = model.objects.latest('id').id + 1
-                except:
-                    max_id = 1
-
-                sql = 'ALTER TABLE %s AUTO_INCREMENT = %d'
-                queries.append(sql % (model._meta.db_table, max_id))
-
-            cursor = connection.cursor()
-            map(lambda query: cursor.execute(query), queries)
-
-    class ListModel(djcommand.SubCommand):
-        name = "list_model"
-        description = "List Model"
-        args = [
-            (('app_labels',), dict(nargs='+', help="app_label")),
-            (('--format', '-f',),
-             dict(default='line', help="format=[line|sphinx]")),
-        ]
-
-        def run(self, params, **options):
-            from django.apps import apps
-
-            for app_label in params.app_labels:
-                conf = apps.get_app_config(app_label)
-                for model in conf.get_models():
-                    data = {
-                        "app_label": app_label,
-                        "module": model.__module__,
-                        "object_name": model._meta.object_name,
-                        "sep": '-' * len(model._meta.object_name),
-                        "db_table": model._meta.db_table,
-                    }
-                    print(_format[params.format].format(**data))
-
-    class CreatDatabase(SqlCommand):
-        name = "createdb"
-        description = "Create Database"
-        args = [
-            (('--user', '-u'),
-             dict(default=os.environ.get("DBROOT_USER"),
-                  help="database user")
-             ),
-            (('--password', '-p'),
-             dict(default=os.environ.get("DBROOT_PASSWD"),
-             help="database password")),
-            (('--database', '-d'),
-             dict(default="default", help="database to created")),
-        ]
-
-        MYSQL_CREATEDB = """
-        CREATE DATABASE %(NAME)s
-        DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
-        GRANT ALL on %(NAME)s.*
-        to '%(USER)s'@'%(SOURCE)s'
-        identified by '%(PASSWORD)s' WITH GRANT OPTION;
-        """
-
-        def run(self, params, **options):
-            from django.conf import settings
-            self.print_dict(settings.DATABASES, "@@@ Your database settings :")
-
-            if settings.DATABASES[params.database]['ENGINE'] \
-                    is 'django.db.backends.sqlite3':
-
-                print("@@@ Not required to create database, just do syncdb.")
-                return
-
-            p = settings.DATABASES[params.database]
-            p['SOURCE'] = p.get('HOST', 'localhost')
-
-            cursor = self.exec_sql(
-                params.user, params.password,
-                "show databases"
-            )
-
-            if (p['NAME'],) in cursor.fetchall():
-                print("database %(NAME)s exists" % p)
-                return
-            else:
-                query = self.MYSQL_CREATEDB % p
-                print("executing:\n", query)
-                cursor.execute(query)
-                for r in cursor.fetchall():
-                    print(r)
-
-    class DropDatabase(SqlCommand):
-        name = "dropdb"
-        description = "Drop Database"
-        args = [
-            (('--database', '-d'),
-             dict(default="default", help="database to created")),
-        ]
-
-        def run(self, params, **options):
-            from django.conf import settings
-            p = settings.DATABASES[params.database]
-
-            self.print_dict(p, "@@@ Your database settings :")
-            if p['ENGINE'] == 'django.db.backends.sqlite3':
-                print("@@@ Not required to create database, just do syncdb.")
-                return
-
-            i = raw_input("Are you ready to delete %(NAME)s ?=[y/n]" % p)
-            if i != 'y':
-                return
-
-            print(self.exec_sql(
-                options['user'] or os.environ.get('DBROOT_USER', ''),
-                options['password'] or os.environ.get('DBROOT_PASSWD', ''),
-                "drop database %(NAME)s" % p,
-                fetchall=True,
-            ))
-
-    class DumpDatabase(SqlCommand):
-        name = "dumpdb"
-        description = "Dump Database"
-        args = [
-            (('--database', '-d'),
-             dict(default="default", help="database to created")),
-            (('--dryrun', '-r'),
-             dict(action='store_true', help="dry run(rehearsal)")),
-        ]
-        MYSQLDUMP = "mysqldump -c --skip-extended-insert"
-        MYSQLPARAM_F = " -u %(USER)s --password=%(PASSWORD)s %(NAME)s"
-
-        def run(self, params, **options):
-            from django.conf import settings
-            p = settings.DATABASES[params.database]
-
-            if p['ENGINE'] == 'django.db.backends.mysql':
-                cmd = self.MYSQLDUMP + self.MYSQLPARAM_F % p
-                print(cmd)
-                params.dryrun or os.system(cmd)
-                return
-
-    class DumpSchemea(SqlCommand):
-        name = "dumpschema"
-        description = "Dump Database Schema"
-        args = [
-            (('--database', '-d'),
-             dict(default="default", help="database to created")),
-            (('--dryrun', '-r'),
-             dict(action='store_true', help="dry run(rehearsal)")),
-        ]
-        MYSQLDUMP = "mysqldump --no-data"
-        MYSQLPARAM_F = " -u %(USER)s --password=%(PASSWORD)s %(NAME)s"
-
-        def run(self, params, **options):
-            from django.conf import settings
-            p = settings.DATABASES[params.database]
-
-            if p['ENGINE'] == 'django.db.backends.mysql':
-                cmd = self.MYSQLDUMP + self.MYSQLPARAM_F % p
-                print(cmd)
-                params.dryrun or os.system(cmd)
-                return
-
-    class DumpData(SqlCommand):
-        name = "dumpsdata"
-        description = "Dump Database Data"
-        args = [
-            (('tables',), dict(nargs='*', help="Database Tables")),
-            (('--database', '-d'),
-             dict(default="default", help="database to created")),
-            (('--dryrun', '-r'),
-             dict(action='store_true', help="dry run(rehearsal)")),
-        ]
-
-        def run(self, params, **options):
-            from django.conf import settings
-            p = settings.DATABASES[params.database]
-            if p['ENGINE'] == 'django.db.backends.mysql':
-                cmd = self.mysqldump_data(**p) + " " + " ".join(params.tables)
-                print(cmd)
-                params.dryrun or os.system(cmd)
-                return
-
-    class DbGrantAll(SqlCommand):
-        name = "db_grant_all"
-        description = "Add DB Admin Privilege"
-        args = [
-            (('--user', '-u'),
-             dict(default=os.environ.get("DBROOT_USER"),
-             help="database user")
-             ),
-            (('--password', '-p'),
-             dict(default=os.environ.get("DBROOT_PASSWD"),
-             help="database password")),
-            (('--database', '-d'),
-             dict(default="default", help="database to created")),
-        ]
-
-        MYSQL_GRANT_ALL = """
-        GRANT ALL on *.* to '%(USER)s'@'%(SOURCE)s' WITH GRANT OPTION;
-        """
-
-        def run(self, params, **options):
-            from django.conf import settings
-            self.print_dict(settings.DATABASES, "@@@ Your database settings :")
-
-            if settings.DATABASES[params.database]['ENGINE'] \
-                    is 'django.db.backends.sqlite3':
-
-                print("@@@ Not required to create database, just do syncdb.")
-                return
-
-            p = settings.DATABASES[params.database]
-            p['SOURCE'] = p.get('HOST', 'localhost')
-
-            cursor = self.exec_sql(
-                params.user, params.password,
-                self.MYSQL_GRANT_ALL % p
-            )
-
-            for r in cursor.fetchall():
-                print(r)
-
-    class ModelDoc(SqlCommand):
-        name = "model_doc"
-        description = "Create Model Documentation for Sphinx"
-        args = [
-            (('apps',), dict(nargs='+', help="Applications")),
-            (('--subdocs', '-s', ),
-             dict(action='store_true', help="Include each models document")),
-        ]
-
-        def header(self, text, level=0):
-            c = ['=', '=', '-', '^', '~', '#', ]
-            if level == 0:
-                print(len(text) * 2 * c[level])
-            # print "@@@@", type(text)
-            print(type(text) == str and text or text.encode('utf8'))
-            print(len(text) * 2 * c[level])
-            print()
-
-            if level == 0:
-                print(".. contents::")
-                print("    :local:")
-                print()
-
-        def ref(self, name):
-            print(".. _{0}:\n".format(name))
-
-        def autoclass(self, name):
-            print(".. autoclass:: {0}".format(name))
-            print("    :members:".encode('utf8'))
-            print()
-
-        def models_for_app(self, app):
-
-            def is_modelclass(c):
-                if inspect.isclass(c) and issubclass(c, Model):
-                    return app.__name__ == c.__module__
-                return False
-
-            res = [m[1] for m in inspect.getmembers(app, is_modelclass,)]
-            return res
-
-        def field_choices(self, field):
-            choices = getattr(field, 'choices', ())
-            if not choices:
-                return
-
-            indent = "          "
-            print()
-            print(indent, ".. list-table::\n")
-            for val, title in choices:
-                print(indent, "    *    -", val)
-                print(indent, "         -", title.encode('utf8'))
-                print(indent, "")
-
-        def field_table(self, model):
-            con = connections['default']      # TODO
-            print("")
-            print(".. list-table::\n")
-            for field in model._meta.fields:
-                print("    *    -", field.name)
-                print("         -", field.verbose_name.encode('utf8'))
-                print("         -", field.db_type(con))
-                print("         -", field.help_text.encode('utf8'))
-                self.field_choices(field)
-                print("")
-
-        def run_for_app(self, app_label, subdocs=False):
-            from django.apps import apps
-            conf = apps.get_app_config(app_label)
-
-            title = (conf.__doc__ or conf.name + " Model").split('\n')[0]
-            self.header(title, 0)
-
-            # for m in get_models(app):
-            for m in conf.get_models():
-                fullname = self.model_fullname(m)
-                self.ref(fullname)
-                desc = m._meta.verbose_name     #
-                title = u"{0}:{1}".format(
-                    m.__name__, desc,
-                )
-                self.header(title, 1)
-                self.autoclass(fullname)
-
-                self.field_table(m)
-                if subdocs:
-                    print(".. include:: {0}.rst".format(fullname))
-                    print()
-
-        def run(self, params, **options):
-            # params.apps = [a + ".models" for a in params.apps]
-            # apps = get_apps()
-            for app_label in params.apps:
-                self.run_for_app(app_label, params.subdocs)
-
-    class ListField(SqlCommand):
-        name = "list_field"
-        description = "Search Model Field"
-        args = [
-            (('apps',), dict(nargs='*', help="Applications")),
-            (('--pattern', '-p'), dict(default='', help="Fieldname Pattern")),
-        ]
-
-        def run_for_app(self, app, pattern=None):
-            for name, m in apps.get_app_config(app).models:
-                for f in m._meta.fields:
-                    if pattern and not pattern.search(f.name):
-                        continue
-                    models = self.fields.get(f.name, list())
-                    val = (self.model_fullname(m),) + f.deconstruct()[3:]
-                    models.append(val)
-                    self.fields[f.name] = models
-
-        def run(self, params, **options):
-            pattern = params.pattern and re.compile(params.pattern)
-            self.fields = {}
-            for app in params.apps:
-                self.run_for_app(app, pattern)
-
-            print(self.to_json(self.fields).encode('utf8'))
-
-    class Backend(SqlCommand):
-        name = 'backend'
-        description = "Backend Info"
-        args = [
-            (('p',), dict(nargs='*', help="Applications")),
-        ]
-
-        def run(self, params, **options):
-            if len(params.p) == 0 or params.p[0] == 'dump_command':
-                print(self.dump_command(name=options.get('database')))
+sqlcommand = SqlCommand()
+
+
+@click.group(invoke_without_command=True)
+@click.pass_context
+def main(ctx):
+    pass
+
+
+@main.command()
+@click.pass_context
+def reset_autoincrement(ctx):
+    '''Reset MySQL autoincrement value. '''
+    queries = []
+    for model in apps.get_models():
+        try:
+            max_id = model.objects.latest('id').id + 1
+        except:
+            max_id = 1
+
+        sql = 'ALTER TABLE %s AUTO_INCREMENT = %d'
+        queries.append(sql % (model._meta.db_table, max_id))
+
+        cursor = connection.cursor()
+        map(lambda query: cursor.execute(query), queries)
+
+
+@main.command()
+@click.argument('app_labels', nargs=-1)
+@click.option('--format', '-f', help="format=[line|sphinx]")
+@click.pass_context
+def list_model(ctx, app_labels, format):
+    '''List Models'''
+    from django.apps import apps
+
+    for app_label in app_labels:
+        conf = apps.get_app_config(app_label)
+        for model in conf.get_models():
+            data = {
+                "app_label": app_label,
+                "module": model.__module__,
+                "object_name": model._meta.object_name,
+                "sep": '-' * len(model._meta.object_name),
+                "db_table": model._meta.db_table,
+            }
+            print(_format[format].format(**data))
+
+
+@main.command()
+@click.option('--user', '-u', default=os.environ.get("DBROOT_USER"))
+@click.option('--password', '-p', default=os.environ.get("DBROOT_PASSWD"))
+@click.option('--database', '-d', default="default")
+@click.pass_context
+def createdb(ctx, user, password, database):
+    MYSQL_CREATEDB = """
+    CREATE DATABASE %(NAME)s
+    DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
+    GRANT ALL on %(NAME)s.*
+    to '%(USER)s'@'%(SOURCE)s'
+    identified by '%(PASSWORD)s' WITH GRANT OPTION;
+    """
+
+    from django.conf import settings
+    sqlcommand.print_dict(settings.DATABASES, "@@@ Your database settings :")
+
+    if settings.DATABASES[database]['ENGINE'] \
+            is 'django.db.backends.sqlite3':
+
+        print("@@@ Not required to create database, just do syncdb.")
+        return
+
+    p = settings.DATABASES[database]
+    p['SOURCE'] = p.get('HOST', 'localhost')
+
+    cursor = sqlcommand.exec_sql(user, password, "show databases")
+
+    if (p['NAME'],) in cursor.fetchall():
+        print("database %(NAME)s exists" % p)
+        return
+    else:
+        query = MYSQL_CREATEDB % p
+        print("executing:\n", query)
+        cursor.execute(query)
+        for r in cursor.fetchall():
+            print(r)
+
+
+@main.command()
+@click.option('--user', '-u', default=os.environ.get("DBROOT_USER"))
+@click.option('--password', '-p', default=os.environ.get("DBROOT_PASSWD"))
+@click.option('--database', '-d', default="default")
+@click.pass_context
+def dropdb(ctx, user, password, database):
+    ''' Drop Database '''
+
+    from django.conf import settings
+    p = settings.DATABASES[database]
+
+    sqlcommand.print_dict(p, "@@@ Your database settings :")
+    if p['ENGINE'] == 'django.db.backends.sqlite3':
+        print("@@@ Not required to create database, just do syncdb.")
+        return
+
+    i = raw_input("Are you ready to delete %(NAME)s ?=[y/n]" % p)
+    if i != 'y':
+        return
+
+    print(sqlcommand.exec_sql(
+        user, password, "drop database %(NAME)s" % p,
+        fetchall=True,
+    ))
+
+
+@main.command()
+@click.option('--user', '-u', default=os.environ.get("DBROOT_USER"))
+@click.option('--password', '-p', default=os.environ.get("DBROOT_PASSWD"))
+@click.option('--database', '-d', default="default")
+@click.option('--dryrun', '-r', is_flag=True, default=False)
+@click.pass_context
+def dumpdb(ctx, user, password, database, dryrun):
+    '''Dump Database'''
+
+    MYSQLDUMP = "mysqldump -c --skip-extended-insert"
+    MYSQLPARAM_F = " -u %(USER)s --password=%(PASSWORD)s %(NAME)s"
+
+    from django.conf import settings
+    p = settings.DATABASES[database]
+
+    if p['ENGINE'] == 'django.db.backends.mysql':
+        cmd = MYSQLDUMP + MYSQLPARAM_F % p
+        print(cmd)
+        dryrun or os.system(cmd)
+        return
+
+
+@main.command()
+@click.option('--user', '-u', default=os.environ.get("DBROOT_USER"))
+@click.option('--password', '-p', default=os.environ.get("DBROOT_PASSWD"))
+@click.option('--database', '-d', default="default")
+@click.option('--dryrun', '-r', is_flag=True, default=False)
+@click.pass_context
+def dumpschema(ctx, user, password, database, dryrun):
+    '''Dump Database Schema '''
+    MYSQLDUMP = "mysqldump --no-data"
+    MYSQLPARAM_F = " -u %(USER)s --password=%(PASSWORD)s %(NAME)s"
+
+    from django.conf import settings
+    p = settings.DATABASES[database]
+
+    if p['ENGINE'] == 'django.db.backends.mysql':
+        cmd = MYSQLDUMP + MYSQLPARAM_F % p
+        print(cmd)
+        dryrun or os.system(cmd)
+        return
+
+
+@main.command()
+@click.argument('tables', nargs=-1)
+@click.option('--user', '-u', default=os.environ.get("dbroot_user"))
+@click.option('--password', '-p', default=os.environ.get("dbroot_passwd"))
+@click.option('--database', '-d', default="default")
+@click.option('--dryrun', '-r', is_flag=True, default=False)
+@click.pass_context
+def dumpdata(ctx, tables, user, password, database, dryrun):
+    '''Dump Database Data'''
+
+    from django.conf import settings
+    p = settings.DATABASES[database]
+    if p['ENGINE'] == 'django.db.backends.mysql':
+        cmd = sqlcommand.mysqldump_data(**p) + " " + " ".join(tables)
+        print(cmd)
+        dryrun or os.system(cmd)
+        return
+
+
+@main.command()
+@click.option('--user', '-u', default=os.environ.get("dbroot_user"))
+@click.option('--password', '-p', default=os.environ.get("dbroot_passwd"))
+@click.option('--database', '-d', default="default")
+@click.option('--dryrun', '-r', is_flag=True, default=False)
+@click.pass_context
+def db_grant_all(ctx, user, password, database, dryrun):
+    ''' Add DB Admin Privilege '''
+    MYSQL_GRANT_ALL = """
+    GRANT ALL on *.* to '%(USER)s'@'%(SOURCE)s' WITH GRANT OPTION;
+    """
+
+    from django.conf import settings
+    sqlcommand.print_dict(settings.DATABASES, "@@@ Your database settings :")
+
+    if settings.DATABASES[database]['ENGINE'] \
+            is 'django.db.backends.sqlite3':
+
+        print("@@@ Not required to create database, just do syncdb.")
+        return
+
+    p = settings.DATABASES[database]
+    p['SOURCE'] = p.get('HOST', 'localhost')
+
+    cursor = sqlcommand.exec_sql(user, password, MYSQL_GRANT_ALL % p)
+
+    for r in cursor.fetchall():
+        print(r)
+
+
+@main.command()
+@click.argument('apps', nargs=-1)
+@click.option('--subdocs', '-s', is_flag=True, default=False)
+@click.pass_context
+def model_doc(ctx, apps, subdocs):
+    '''Sphinx Model Documentation'''
+    for app_label in apps:
+        sqlcommand.generate_doc(app_label, subdocs)
+
+
+@main.command()
+@click.argument('apps', nargs=-1)
+@click.option('--pattern', '-p')
+@click.pass_context
+def list_field(ctx, apps, pattern):
+    '''Search Model Field'''
+
+    def run_for_app(app, pattern, fields):
+        for name, m in apps.get_app_config(app).models:
+            for f in m._meta.fields:
+                if pattern and not pattern.search(f.name):
+                    continue
+                models = fields.get(f.name, list())
+                val = (sqlcommand.model_fullname(m),) + f.deconstruct()[3:]
+                models.append(val)
+                fields[f.name] = models
+
+    pattern = pattern and re.compile(pattern)
+    fields = {}
+    for app in apps:
+        run_for_app(app, pattern, fields)
+
+    print(sqlcommand.to_json(fields).encode('utf8'))

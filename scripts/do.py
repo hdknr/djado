@@ -1,11 +1,7 @@
 #!/usr/bin/env python
 from __future__ import print_function
 # django version 1.5
-import sys
-import re
-import os
-import argparse
-from pycommand import command
+import click
 
 
 PAVES = '''# -*- coding: utf-8 -*-
@@ -20,16 +16,23 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 '''
 
 
-class DoCommand(command.Command):
-    class InitCommand(command.SubCommand):
-        name = "init"
-        description = "create pavement.py"
-        args = []
+def _P(text, fg="green", **kwargs):
+    click.secho(text, fg=fg)
 
-        def run(self, params, **options):
-            print("providing pavement.py")
-            with open('pavement.py', 'w') as pave:
-                pave.write(PAVES)
+
+@click.group(invoke_without_command=True)
+@click.pass_context
+def main(ctx):
+    pass
+
+
+@main.command()
+@click.pass_context
+def init(ctx):
+    _P("providing pavement.py")
+    with open('pavement.py', 'w') as pave:
+        pave.write(PAVES)
+
 
 if __name__ == '__main__':
-    DoCommand().run()
+    main()
