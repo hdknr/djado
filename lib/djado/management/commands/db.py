@@ -4,10 +4,19 @@ from __future__ import print_function
 from django.apps import apps
 from django.db import connection
 # from django.utils import functional
+from djado.templatetags import djadotags
 import djclick as click
 import os
 import re
 from .sql import SqlCommand
+
+
+def _P(text, fg="green", **kwargs):
+    click.secho(text, fg=fg)
+
+
+def _R(template, fg="green", **kwargs):
+    click.secho(djadotags.render_by(template, **kwargs), fg=fg)
 
 _format = dict(
     line='{module}.{object_name} {db_table}',
@@ -262,3 +271,12 @@ def list_field(ctx, apps, pattern):
         run_for_app(app, pattern, fields)
 
     print(sqlcommand.to_json(fields).encode('utf8'))
+
+
+@main.command()
+@click.option('--database', '-d', default="default")
+@click.pass_context
+def createdb_script(ctx, database):
+    from django.conf import settings
+    db = settings.DATABASES[database]
+    _R('djado/{ENGINE}/createdb_script.sql'.format(**db), db=db)

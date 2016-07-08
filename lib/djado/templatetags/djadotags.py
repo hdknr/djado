@@ -6,13 +6,13 @@ register = template.Library()
 
 
 def render(src, **ctx):
-    return mark_safe(template.Template(src).render(template.Context(ctx)))
+    return mark_safe(template.Template(src).render(ctx))
 
 
 def render_by(template_name, **ctx):
     return mark_safe(
         template.loader.get_template(
-            template_name).render(template.Context(ctx)))
+            template_name).render(ctx))
 
 
 @register.filter
