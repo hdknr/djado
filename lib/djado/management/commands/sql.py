@@ -87,3 +87,11 @@ class SqlCommand(object):
         print(_T.render_by(
             'djado/db/models.rst',
             app=app, connection=con, subdoc=subdocs).encode('utf8'))
+
+    def exec_sql(self, user, password, sql, fetchall=False):
+        import MySQLdb
+        con = MySQLdb.connect(
+            user=user, passwd=password)
+        cursor = con.cursor()
+        cursor.execute(sql)
+        return cursor.fetchall() if fetchall else cursor

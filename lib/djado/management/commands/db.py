@@ -104,10 +104,10 @@ def createdb(ctx, user, password, database):
         print("@@@ Not required to create database, just do syncdb.")
         return
 
+    cursor = sqlcommand.exec_sql(user, password, "show databases")
+
     p = settings.DATABASES[database]
     p['SOURCE'] = p.get('HOST', 'localhost')
-
-    cursor = sqlcommand.exec_sql(user, password, "show databases")
 
     if (p['NAME'],) in cursor.fetchall():
         print("database %(NAME)s exists" % p)
