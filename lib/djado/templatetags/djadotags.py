@@ -1,18 +1,6 @@
 # -*- coding: utf-8 -*-
 from django import template
-from django.utils.safestring import mark_safe
-
 register = template.Library()
-
-
-def render(src, **ctx):
-    return mark_safe(template.Template(src).render(ctx))
-
-
-def render_by(template_name, **ctx):
-    return mark_safe(
-        template.loader.get_template(
-            template_name).render(ctx))
 
 
 @register.filter

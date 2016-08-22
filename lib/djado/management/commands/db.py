@@ -4,29 +4,22 @@ from __future__ import print_function
 from django.apps import apps
 from django.db import connection
 # from django.utils import functional
-from djado.templatetags import djadotags
+from djado.utils import echo, echo_by
 import djclick as click
 import os
 import re
 from .sql import SqlCommand
 
 
-def _P(text, fg="green", **kwargs):
-    click.secho(text, fg=fg)
-
-
-def _R(template, fg="green", **kwargs):
-    click.secho(djadotags.render_by(template, **kwargs), fg=fg)
-
 _format = dict(
-    line='{module}.{object_name} {db_table}',
+    line='{{module}}.{{object_name}} {{db_table}}',
     sphinx='''
-.. _{module}.{object_name}:
+.. _{{module}}.{{object_name}}:
 
-{object_name}
-{sep}
+{{object_name}}
+{{sep}}
 
-.. autoclass:: {module}.{object_name}
+.. autoclass:: {{module}}.{{object_name}}
     :members:
 
 ''',
@@ -62,10 +55,11 @@ def reset_autoincrement(ctx):
 
 @main.command()
 @click.argument('app_labels', nargs=-1)
-@click.option('--format', '-f', help="format=[line|sphinx]")
+@click.option('--format', '-f', default='sphinx', help="format=[line|sphinx]")
 @click.pass_context
 def list_model(ctx, app_labels, format):
     '''List Models'''
+    echo('{{ a }} {{ f }}', a=app_labels, f=format)
     from django.apps import apps
 
     for app_label in app_labels:
@@ -78,7 +72,7 @@ def list_model(ctx, app_labels, format):
                 "sep": '-' * len(model._meta.object_name),
                 "db_table": model._meta.db_table,
             }
-            print(_format[format].format(**data))
+            echo(_format[format], **data)
 
 
 @main.command()
@@ -279,4 +273,4 @@ def list_field(ctx, apps, pattern):
 def createdb_script(ctx, database):
     from django.conf import settings
     db = settings.DATABASES[database]
-    _R('djado/{ENGINE}/createdb_script.sql'.format(**db), db=db)
+    echo_by('djado/{ENGINE}/createdb_script.sql'.format(**db), db=db)
