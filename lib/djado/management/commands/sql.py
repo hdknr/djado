@@ -8,7 +8,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.utils.encoding import force_text
 import json
 import inspect
-from djado.templatetags import djadotags as _T
+from djado.utils import echo_by
 
 
 class SqlCommand(object):
@@ -84,9 +84,9 @@ class SqlCommand(object):
         from django.apps import apps
         con = connections['default']      # TODO
         app = apps.get_app_config(app_label)
-        print(_T.render_by(
+        echo_by(
             'djado/db/models.rst',
-            app=app, connection=con, subdoc=subdocs).encode('utf8'))
+            app=app, connection=con, subdoc=subdocs)
 
     def exec_sql(self, user, password, sql, fetchall=False):
         import MySQLdb
